@@ -512,7 +512,7 @@ generate
 	end
 endgenerate
 
-/*
+
 // PIPELINE REGISTERS FOR OUT->prediction
 reg signed[OUT_WIDTH-1:0] OUTpred_reg[0:LAST_OUT-1];
 reg[3:0] k;	// range: 0 to 9
@@ -520,14 +520,14 @@ reg[3:0] k;	// range: 0 to 9
 always @ (posedge clk) begin
 	for (k = 0; k < LAST_OUT; k = k+1)
 	OUTpred_reg[k] <= LAST_fcOut[k];
-end*/
+end
 
 // find output (largest amongst FC outputs)
 // flatten input vectorma
 wire signed[LAST_OUT*OUT_WIDTH-1:0] OUT_invec;	// 10 * 128-bit outputs as a flattened vector
 generate
 	for (g = 0; g < LAST_OUT; g = g+1) begin : flatten_OUT10_in	// 10 outputs
-		assign OUT_invec[OUT_WIDTH*(g+1)-1 : OUT_WIDTH*g] = LAST_fcOut[g]; //OUTpred_reg[g];
+		assign OUT_invec[OUT_WIDTH*(g+1)-1 : OUT_WIDTH*g] = OUTpred_reg[g]; //LAST_fcOut[g];
 	end
 endgenerate
 
