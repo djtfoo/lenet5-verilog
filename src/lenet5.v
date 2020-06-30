@@ -25,15 +25,14 @@ parameter CONV_SIZE_16 = 16*CONV_SIZE;	// no. params in 5x5x6 filters, bias not 
 
 genvar g;
 
-wire signed[IN_WIDTH-1:0] rb_out[0:4];	// store outputs of rowbuffer
+wire signed[IN_WIDTH-1:0] rb_out[0:3];	// store outputs of rowbuffer
 
 // add next pixel to buffer for C1
-row5buffer #(.COLS(IMAGE_COLS), .BIT_WIDTH(IN_WIDTH)) INPUT_RB (
+row4buffer #(.COLS(IMAGE_COLS), .BIT_WIDTH(IN_WIDTH)) INPUT_RB (
 	.clk(clk), .rst(rst),
 	.rb_in(nextPixel),
 	.en(1'b1),
-	.rb_out0(rb_out[0]), .rb_out1(rb_out[1]), .rb_out2(rb_out[2]),
-	.rb_out3(rb_out[3]), .rb_out4(rb_out[4])
+	.rb_out0(rb_out[0]), .rb_out1(rb_out[1]), .rb_out2(rb_out[2]), .rb_out3(rb_out[3])
 );
 
 // generate control signals for row buffers for convolution/pooling layers
@@ -83,16 +82,16 @@ endgenerate
 
 
 // holds output of rowbuffer for C1 -> S2
-wire signed[HALF_WIDTH-1:0] rb_C1S2[0:2*C1_MAPS-1];	// 6 maps * 2 rows - 1 = 11
+wire signed[HALF_WIDTH-1:0] rb_C1S2[0:C1_MAPS-1];	// 6 maps * 1 row - 1 = 5
 
 // C1 feature map; next pixel to buffer for S2
 generate
 	for (g = 0; g < C1_MAPS; g = g+1) begin : C1_rb	// 6 feature maps
-		row2buffer #(.COLS(C1_SIZE), .BIT_WIDTH(HALF_WIDTH)) C1_RB (
+		rowbuffer #(.COLS(C1_SIZE), .BIT_WIDTH(HALF_WIDTH)) C1_RB (
 			.clk(clk), .rst(rst),
 			.rb_in(C1_relu[g]),
 			.en(S2_en),
-			.rb_out0(rb_C1S2[g*2]), .rb_out1(rb_C1S2[g*2+1])
+			.rb_out(rb_C1S2[g])
 		);
 	end
 endgenerate
@@ -107,7 +106,7 @@ generate
 		maxpool22 #(.BIT_WIDTH(HALF_WIDTH)) S2_POOL (
 			.clk(clk), //.rst(rst),
 			.en(S2_en),
-			.in1(rb_C1S2[g*2]), .in2(C1_relu[g]),
+			.in1(rb_C1S2[g]), .in2(C1_relu[g]),
 			.maxOut(S2_poolOut[g])
 		);
 	end
@@ -117,15 +116,14 @@ endgenerate
 // use S2_en for end-of-S2 rowbuffer as well as max pooling modules
 
 // holds output of rowbuffer for S2 -> C3
-wire signed[HALF_WIDTH-1:0] rb_S2C3[0:C1_MAPS*5-1];	// 6 maps * 5 rows - 1 = 29
+wire signed[HALF_WIDTH-1:0] rb_S2C3[0:C1_MAPS*4-1];	// 6 maps * 4 rows - 1 = 23
 generate
 	for (g = 0; g < C1_MAPS; g = g+1) begin : S2_rb	// 6 feature maps
-		row5buffer #(.COLS(S2_SIZE), .BIT_WIDTH(HALF_WIDTH)) S2_RB (
+		row4buffer #(.COLS(S2_SIZE), .BIT_WIDTH(HALF_WIDTH)) S2_RB (
 			.clk(clk), .rst(rst),
 			.rb_in(S2_poolOut[g]),
 			.en(C3_en),
-			.rb_out0(rb_S2C3[g*5]), .rb_out1(rb_S2C3[g*5+1]), .rb_out2(rb_S2C3[g*5+2]),
-			.rb_out3(rb_S2C3[g*5+3]), .rb_out4(rb_S2C3[g*5+4])
+			.rb_out0(rb_S2C3[g*4]), .rb_out1(rb_S2C3[g*4+1]), .rb_out2(rb_S2C3[g*4+2]), .rb_out3(rb_S2C3[g*4+3])
 		);
 	end
 endgenerate
@@ -168,13 +166,13 @@ generate
 			.clk(clk), //.rst(rst),
 			.en(C3_en),	// whether to latch or not
 			// feature map 1: g
-			.in01(rb_S2C3[g*5+3]), .in02(rb_S2C3[g*5+2]), .in03(rb_S2C3[g*5+1]), .in04(rb_S2C3[g*5]),
+			.in01(rb_S2C3[g*4+3]), .in02(rb_S2C3[g*4+2]), .in03(rb_S2C3[g*4+1]), .in04(rb_S2C3[g*4]),
 				.in05(S2_poolOut[g]),
 			// feature map 2: (g+1 >= 6) ? g-5 : g+1
-			.in11(rb_S2C3[g1*5+3]), .in12(rb_S2C3[g1*5+2]), .in13(rb_S2C3[g1*5+1]), .in14(rb_S2C3[g1*5]),
+			.in11(rb_S2C3[g1*4+3]), .in12(rb_S2C3[g1*4+2]), .in13(rb_S2C3[g1*4+1]), .in14(rb_S2C3[g1*4]),
 				.in15(S2_poolOut[g1]),
 			// feature map 3: (g+2 >= 6) ? g-4 : g+2
-			.in21(rb_S2C3[g2*5+3]), .in22(rb_S2C3[g2*5+2]), .in23(rb_S2C3[g2*5+1]), .in24(rb_S2C3[g2*5]),
+			.in21(rb_S2C3[g2*4+3]), .in22(rb_S2C3[g2*4+2]), .in23(rb_S2C3[g2*4+1]), .in24(rb_S2C3[g2*4]),
 				.in25(S2_poolOut[g2]),
 
 			.filter( rom_c3_x3[HALF_WIDTH*((g+1)*SIZE2-1)-1 : HALF_WIDTH*g*SIZE2] ),	// 5x5x3 filter
@@ -202,16 +200,16 @@ generate
 			.en(C3_en),	// whether to latch or not
 
 			// feature map 1: g
-			.in01(rb_S2C3[g*5+3]), .in02(rb_S2C3[g*5+2]), .in03(rb_S2C3[g*5+1]), .in04(rb_S2C3[g*5]),
+			.in01(rb_S2C3[g*4+3]), .in02(rb_S2C3[g*4+2]), .in03(rb_S2C3[g*4+1]), .in04(rb_S2C3[g*4]),
 				.in05(S2_poolOut[g]),
 			// feature map 2: (g+1 >= 6) ? g-5 : g+1
-			.in11(rb_S2C3[g1*5+3]), .in12(rb_S2C3[g1*5+2]), .in13(rb_S2C3[g1*5+1]), .in14(rb_S2C3[g1*5]),
+			.in11(rb_S2C3[g1*4+3]), .in12(rb_S2C3[g1*4+2]), .in13(rb_S2C3[g1*4+1]), .in14(rb_S2C3[g1*4]),
 				.in15(S2_poolOut[g1]),
 			// feature map 3: (g+2 >= 6) ? g-4 : g+2
-			.in21(rb_S2C3[g2*5+3]), .in22(rb_S2C3[g2*5+2]), .in23(rb_S2C3[g2*5+1]), .in24(rb_S2C3[g2*5]),
+			.in21(rb_S2C3[g2*4+3]), .in22(rb_S2C3[g2*4+2]), .in23(rb_S2C3[g2*4+1]), .in24(rb_S2C3[g2*4]),
 				.in25(S2_poolOut[g2]),
 			// feature map 4: (g+3 >= 6) ? g-3 : g+3
-			.in31(rb_S2C3[g3*5+3]), .in32(rb_S2C3[g3*5+2]), .in33(rb_S2C3[g3*5+1]), .in34(rb_S2C3[g3*5]),
+			.in31(rb_S2C3[g3*4+3]), .in32(rb_S2C3[g3*4+2]), .in33(rb_S2C3[g3*4+1]), .in34(rb_S2C3[g3*4]),
 				.in35(S2_poolOut[g3]),
 
 			.filter( rom_c3_x4[HALF_WIDTH*((g+1)*SIZE-1)-1 : HALF_WIDTH*g*SIZE] ),	// 5x5x4 filter
@@ -238,16 +236,16 @@ generate
 			.en(C3_en),	// whether to latch or not
 
 			// feature map 1
-			.in01(rb_S2C3[g*5+3]), .in02(rb_S2C3[g*5+2]), .in03(rb_S2C3[g*5+1]), .in04(rb_S2C3[g*5]),
+			.in01(rb_S2C3[g*4+3]), .in02(rb_S2C3[g*4+2]), .in03(rb_S2C3[g*4+1]), .in04(rb_S2C3[g*4]),
 				.in05(S2_poolOut[g]),
 			// feature map 2
-			.in11(rb_S2C3[(g+1)*5+3]), .in12(rb_S2C3[(g+1)*5+2]), .in13(rb_S2C3[(g+1)*5+1]), .in14(rb_S2C3[(g+1)*5]),
+			.in11(rb_S2C3[(g+1)*4+3]), .in12(rb_S2C3[(g+1)*4+2]), .in13(rb_S2C3[(g+1)*4+1]), .in14(rb_S2C3[(g+1)*4]),
 				.in15(S2_poolOut[g+1]),
 			// feature map 3
-			.in21(rb_S2C3[(g+3)*5+3]), .in22(rb_S2C3[(g+3)*5+2]), .in23(rb_S2C3[(g+3)*5+1]), .in24(rb_S2C3[(g+3)*5]),
+			.in21(rb_S2C3[(g+3)*4+3]), .in22(rb_S2C3[(g+3)*4+2]), .in23(rb_S2C3[(g+3)*4+1]), .in24(rb_S2C3[(g+3)*4]),
 				.in25(S2_poolOut[g+3]),
 			// feature map 4
-			.in31(rb_S2C3[g4*5+3]), .in32(rb_S2C3[g4*5+2]), .in33(rb_S2C3[g4*5+1]), .in34(rb_S2C3[g4*5]),
+			.in31(rb_S2C3[g4*4+3]), .in32(rb_S2C3[g4*4+2]), .in33(rb_S2C3[g4*4+1]), .in34(rb_S2C3[g4*4]),
 				.in35(S2_poolOut[g4]),
 
 			.filter( rom_c3_x4[HALF_WIDTH*((start+1)*SIZE-1)-1 : HALF_WIDTH*start*SIZE] ),	// 5x5x4 filter
@@ -271,11 +269,11 @@ conv556 #(.BIT_WIDTH(HALF_WIDTH), .OUT_WIDTH(OUT_WIDTH)) C3_CONV_6 (
 	.en(C3_en),	// whether to latch or not
 
 	.in01(rb_S2C3[3]), .in02(rb_S2C3[2]), .in03(rb_S2C3[1]), .in04(rb_S2C3[0]), .in05(S2_poolOut[0]),	// feature map 1
-	.in11(rb_S2C3[5+3]), .in12(rb_S2C3[5+2]), .in13(rb_S2C3[5+1]), .in14(rb_S2C3[5]), .in15(S2_poolOut[1]),	// feature map 2
-	.in21(rb_S2C3[2*5+3]), .in22(rb_S2C3[2*5+2]), .in23(rb_S2C3[2*5+1]), .in24(rb_S2C3[2*5]), .in25(S2_poolOut[2]),	// feature map 3
-	.in31(rb_S2C3[3*5+3]), .in32(rb_S2C3[3*5+2]), .in33(rb_S2C3[3*5+1]), .in34(rb_S2C3[3*5]), .in35(S2_poolOut[3]),	// feature map 4
-	.in41(rb_S2C3[4*5+3]), .in42(rb_S2C3[4*5+2]), .in43(rb_S2C3[4*5+1]), .in44(rb_S2C3[4*5]), .in45(S2_poolOut[4]),	// feature map 5
-	.in51(rb_S2C3[5*5+3]), .in52(rb_S2C3[5*5+2]), .in53(rb_S2C3[5*5+1]), .in54(rb_S2C3[5*5]), .in55(S2_poolOut[5]),	// feature map 6
+	.in11(rb_S2C3[4+3]), .in12(rb_S2C3[4+2]), .in13(rb_S2C3[4+1]), .in14(rb_S2C3[4]), .in15(S2_poolOut[1]),	// feature map 2
+	.in21(rb_S2C3[2*4+3]), .in22(rb_S2C3[2*4+2]), .in23(rb_S2C3[2*4+1]), .in24(rb_S2C3[2*4]), .in25(S2_poolOut[2]),	// feature map 3
+	.in31(rb_S2C3[3*4+3]), .in32(rb_S2C3[3*4+2]), .in33(rb_S2C3[3*4+1]), .in34(rb_S2C3[3*4]), .in35(S2_poolOut[3]),	// feature map 4
+	.in41(rb_S2C3[4*4+3]), .in42(rb_S2C3[4*4+2]), .in43(rb_S2C3[4*4+1]), .in44(rb_S2C3[4*4]), .in45(S2_poolOut[4]),	// feature map 5
+	.in51(rb_S2C3[5*4+3]), .in52(rb_S2C3[5*4+2]), .in53(rb_S2C3[5*4+1]), .in54(rb_S2C3[5*4]), .in55(S2_poolOut[5]),	// feature map 6
 
 	.filter( rom_c3_x6[HALF_WIDTH*CONV_SIZE_6-1 : 0] ),	// 5x5x6 filter
 	.bias( rom_c3_x6[HALF_WIDTH*(CONV_SIZE_6 + 1)-1 : HALF_WIDTH*CONV_SIZE_6] ),
@@ -290,16 +288,16 @@ ReLU #(.BIT_WIDTH(OUT_WIDTH)) C3_RELU_6 (
 
 
 // holds output of rowbuffer for C3 -> S4
-wire signed[OUT_WIDTH-1:0] rb_C3S4[0:C3_MAPS*2-1];	// 16 * 2 rows - 1 = 31
+wire signed[OUT_WIDTH-1:0] rb_C3S4[0:C3_MAPS-1];	// 16 * 1 rows - 1 = 15
 
 // C3 feature map; next pixel to buffer for S4
 generate
 	for (g = 0; g < C3_MAPS; g = g+1) begin : C3_rb	// 16 feature maps
-		row2buffer #(.COLS(C3_SIZE), .BIT_WIDTH(OUT_WIDTH)) C3_RB (
+		rowbuffer #(.COLS(C3_SIZE), .BIT_WIDTH(OUT_WIDTH)) C3_RB (
 			.clk(clk), .rst(rst),
 			.rb_in(C3_relu[g]),
 			.en(S4_en),
-			.rb_out0(rb_C3S4[g*2]), .rb_out1(rb_C3S4[g*2+1])
+			.rb_out(rb_C3S4[g])
 		);
 	end
 endgenerate
@@ -314,7 +312,7 @@ generate
 		maxpool22 #(.BIT_WIDTH(OUT_WIDTH)) S4_POOL (
 			.clk(clk), //.rst(rst),
 			.en(S4_en),
-			.in1(rb_C3S4[g*2]), .in2(C3_relu[g]),
+			.in1(rb_C3S4[g]), .in2(C3_relu[g]),
 			.maxOut(S4_poolOut[g])
 		);
 	end
@@ -323,17 +321,15 @@ endgenerate
 // use S4_en for end-of-S4 rowbuffer as well as max pooling modules
 
 // holds output of rowbuffer for S4 -> C5
-//wire [OUT_WIDTH-1:0] rb_S4C5[95:0];	// 16 maps * 6 rows - 1 = 95
-wire signed[OUT_WIDTH-1:0] rb_S4C5_r0[0:C3_MAPS-1], rb_S4C5_r1[0:C3_MAPS-1], rb_S4C5_r2[0:C3_MAPS-1], rb_S4C5_r3[0:C3_MAPS-1],
-		rb_S4C5_r4[0:C3_MAPS-1];	// 16 maps; 80x 32-bit wires in total
+// 16 maps; 16*4 rows of 32-bit wires in total
+wire signed[OUT_WIDTH-1:0] rb_S4C5_r0[0:C3_MAPS-1], rb_S4C5_r1[0:C3_MAPS-1], rb_S4C5_r2[0:C3_MAPS-1], rb_S4C5_r3[0:C3_MAPS-1];
 generate
 	for (g = 0; g < C3_MAPS; g = g+1) begin : S4_rb
-		row5buffer #(.COLS(S4_SIZE), .BIT_WIDTH(OUT_WIDTH)) S4_RB (
+		row4buffer #(.COLS(S4_SIZE), .BIT_WIDTH(OUT_WIDTH)) S4_RB (
 			.clk(clk), .rst(rst),
 			.rb_in(S4_poolOut[g]),
 			.en(C5_en),
-			.rb_out0(rb_S4C5_r0[g]), .rb_out1(rb_S4C5_r1[g]), .rb_out2(rb_S4C5_r2[g]),
-			.rb_out3(rb_S4C5_r3[g]), .rb_out4(rb_S4C5_r4[g])//, .rb_out5(rb_S4C5_r5[g])
+			.rb_out0(rb_S4C5_r0[g]), .rb_out1(rb_S4C5_r1[g]), .rb_out2(rb_S4C5_r2[g]), .rb_out3(rb_S4C5_r3[g])
 		);
 	end
 endgenerate
